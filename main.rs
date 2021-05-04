@@ -9,15 +9,20 @@
 use derive_builder::Builder;
 
 #[derive(Builder)]
+/// Blabla
+#[derive(Debug)]
 pub struct Command {
     executable: String,
     args: Vec<String>,
     env: Vec<String>,
     current_dir: String,
+    another_one: String,
 }
 
 fn main() {
     let builder = Command::builder();
 
-    let _ = builder;
+    let command = builder.build();
+
+    dbg!(command);
 }

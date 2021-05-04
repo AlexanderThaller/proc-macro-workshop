@@ -9,62 +9,91 @@ use syn::{
 pub fn derive(input: TokenStream) -> TokenStream {
     let parsed = parse_macro_input!(input as DeriveInput);
 
-    dbg!(&parsed);
-
     let name = &parsed.ident;
     let builder_name = format!("{}Builder", name);
     let builder_ident = syn::Ident::new(&builder_name, name.span());
 
-    dbg!(&builder_name);
+    let fields = match parsed.data {
+        syn::Data::Struct(data) => match data.fields {
+            syn::Fields::Named(named) => named.named,
+            syn::Fields::Unnamed(_) => unimplemented!(),
+            syn::Fields::Unit => unimplemented!(),
+        },
+        syn::Data::Enum(_) => unimplemented!(),
+        syn::Data::Union(_) => unimplemented!(),
+    };
+
+    let fields_ident = fields.iter().map(|f| {
+        let name = &f.ident;
+        let ty = &f.ty;
+
+        quote! { #name: std::option::Option<#ty> }
+    });
+
+    let setters = fields.iter().map(|f| {
+        let name = &f.ident;
+        let ty = &f.ty;
+        let setter_documentation = format!("Set value of field {}", name.as_ref().unwrap());
+
+        quote! {
+            #[doc = #setter_documentation]
+            pub fn #name(&mut self, value: #ty) -> &mut Self {
+              self.#name = Some(value);
+              self
+            }
+        }
+    });
+
+    let build_fn = fields.iter().map(|f| {
+        let name = &f.ident;
+
+        quote! {
+            #name: self.#name.clone().ok_or(concat!(stringify!(#name), " is missing"))?
+        }
+    });
+
+    let builder_fields = fields.iter().map(|f| {
+        let name = &f.ident;
+
+        quote! {
+            #name: None
+        }
+    });
+
+    let builder_documentation = format!("Builder for {}", name);
+    let build_documentation = format!(
+        "Build a new {} from the values set in {builder_name}. Panics if any field in \
+         {builder_name} is unset.",
+        name,
+        builder_name = builder_name
+    );
 
     let struct_builder = quote! {
+        #[doc = #builder_documentation]
         pub struct #builder_ident {
-          executable: Option<String>,
-          args: Option<Vec<String>>,
-          env: Option<Vec<String>>,
-          current_dir: Option<String>,
+          #(#fields_ident),*
         }
 
         impl #builder_ident {
-            pub fn executable(&mut self, value: String) -> &mut Self {
-                self.executable = Some(value);
-                self
-            }
+            #(#setters)*
 
-            pub fn args(&mut self, value: Vec<String>) -> &mut Self {
-                self.args = Some(value);
-                self
-            }
-
-            pub fn env(&mut self, value: Vec<String>) -> &mut Self {
-                self.env = Some(value);
-                self
-            }
-
-            pub fn current_dir(&mut self, value: String) -> &mut Self {
-                self.current_dir = Some(value);
-                self
-            }
-
+            #[doc = #build_documentation]
             pub fn build(&self) -> Result<Command, Box<dyn std::error::Error>> {
                 Ok(#name {
-                    executable: self.executable.clone().ok_or("missing executable")?,
-                    args: self.args.clone().ok_or("missing args")?,
-                    env: self.env.clone().ok_or("missing env")?,
-                    current_dir: self.current_dir.clone().ok_or("missing current_dir")?,
+                    #(#build_fn),*
                 })
             }
         }
     };
 
+    let builder_new_documentation = format!("Create a new empty {}", builder_name);
+
     let struct_impl = quote! {
         impl #name {
+            #[doc = #builder_new_documentation]
             pub fn builder() -> #builder_ident {
                 #builder_ident {
-                    executable: None,
-                    args: None,
-                    env: None,
-                    current_dir: None,
+                    #(#builder_fields),*
                 }
             }
         }
