@@ -24,9 +24,10 @@ pub fn derive(input: TokenStream) -> TokenStream {
     };
 
     let check_type_is_option = |ty: &syn::Type| -> Option<_> {
-        if let syn::Type::Path(path) = ty {
-            let segment = &path.path.segments[0];
-            if segment.ident == "Option" {
+        if let syn::Type::Path(p) = ty {
+            if p.path.segments.len() == 1 && &p.path.segments[0].ident == "Option" {
+                let segment = &p.path.segments[0];
+
                 if let syn::PathArguments::AngleBracketed(inner_type) = &segment.arguments {
                     let inner_ident = &inner_type.args;
                     return Some(inner_ident.clone());
