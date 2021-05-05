@@ -23,11 +23,29 @@ pub fn derive(input: TokenStream) -> TokenStream {
         syn::Data::Union(_) => unimplemented!(),
     };
 
+    let check_type_is_option = |ty: &syn::Type| -> Option<_> {
+        if let syn::Type::Path(path) = ty {
+            let segment = &path.path.segments[0];
+            if segment.ident == "Option" {
+                if let syn::PathArguments::AngleBracketed(inner_type) = &segment.arguments {
+                    let inner_ident = &inner_type.args;
+                    return Some(inner_ident.clone());
+                }
+            }
+        }
+
+        None
+    };
+
     let fields_ident = fields.iter().map(|f| {
         let name = &f.ident;
         let ty = &f.ty;
 
-        quote! { #name: std::option::Option<#ty> }
+        if let Some(inner_ident) = check_type_is_option(ty) {
+            quote! { #name: std::option::Option<#inner_ident> }
+        } else {
+            quote! { #name: std::option::Option<#ty> }
+        }
     });
 
     let setters = fields.iter().map(|f| {
@@ -35,20 +53,37 @@ pub fn derive(input: TokenStream) -> TokenStream {
         let ty = &f.ty;
         let setter_documentation = format!("Set value of field {}", name.as_ref().unwrap());
 
-        quote! {
-            #[doc = #setter_documentation]
-            pub fn #name(&mut self, value: #ty) -> &mut Self {
-              self.#name = Some(value);
-              self
+        if let Some(inner_ident) = check_type_is_option(ty) {
+            return quote! {
+                #[doc = #setter_documentation]
+                pub fn #name(&mut self, value: #inner_ident) -> &mut Self {
+                    self.#name = Some(value);
+                    self
+                }
+            };
+        } else {
+            quote! {
+                #[doc = #setter_documentation]
+                pub fn #name(&mut self, value: #ty) -> &mut Self {
+                    self.#name = Some(value);
+                    self
+                }
             }
         }
     });
 
     let build_fn = fields.iter().map(|f| {
         let name = &f.ident;
+        let ty = &f.ty;
 
-        quote! {
-            #name: self.#name.clone().ok_or(concat!(stringify!(#name), " is missing"))?
+        if check_type_is_option(ty).is_some() {
+            return quote! {
+                #name: self.#name.clone()
+            };
+        } else {
+            quote! {
+                #name: self.#name.clone().ok_or(concat!(stringify!(#name), " is missing"))?
+            }
         }
     });
 
